@@ -96,7 +96,7 @@ def _sawtooth_wave_table(freq, rate, amp):
 
 class Tone(object):
     """
-    Represents a monophonic tone
+    Represents a fixed monophonic tone
     """
 
     table_generators = {
@@ -118,13 +118,42 @@ class Tone(object):
         """
 
         try:
-            tablefunc = self.table_generators[wavetype]
+            self.tablefunc = self.table_generators[wavetype]
         except KeyError:
             raise ValueError("Invalid wave type: %s" % wavetype)
 
+        self._amp = amplitude
         self._rate = rate
         self._period = int(rate / frequency)
-        self._table = tablefunc(frequency, rate, amplitude)
+        self._table = self.tablefunc(frequency, rate, amplitude)
+
+    def slide(self, num, start, end):
+        time_step = 0.01
+        sample_step = int(time_step * self._rate) # change frequency every 10ms
+        num_steps = int(num / sample_step)
+        freq_delta = end - start
+        freq_step = freq_delta / num_steps
+
+        i = 0
+        last_size = 0
+        freq = float(start)
+        ret = Samples()
+
+        while freq <= end:
+            table = self.tablefunc(freq, self._rate, self._amp)
+            period = len(table)
+            if last_size > 0:
+                i = int((float(i) / (last_size - 1)) * (period - 1))
+
+            for _ in range(sample_step):
+                ret.append(table[i % period])
+                i += 1
+
+            i %= period
+            last_size = period
+            freq += freq_step
+
+        return ret
 
     def samples(self, num, attack=0.05, decay=0.05):
         """
@@ -316,12 +345,14 @@ class Mixer(object):
 def main():
     m = Mixer(44100, 0.5)
     m.create_track(0, SINE_WAVE)
-    m.create_track(1, SINE_WAVE)
-    m.create_track(2, SINE_WAVE)
+    #m.create_track(1, SINE_WAVE)
+    #m.create_track(2, SINE_WAVE)
 
-    m.add_tone(0, frequency=440.0, duration=1.0, attack=0.1, decay=0.5)
-    m.add_tone(1, frequency=450.0, duration=1.0, attack=0.1, decay=0.5)
-    m.add_tone(2, frequency=460.0, duration=1.0, attack=0.1, decay=0.5)
+    #m.add_tone(0, frequency=440.0, duration=1.0, attack=0.1, decay=0.5)
+    #m.add_tone(1, frequency=450.0, duration=1.0, attack=0.1, decay=0.5)
+    #m.add_tone(2, frequency=460.0, duration=1.0, attack=0.1, decay=0.5)
+    t = Tone(440.0, 44100, 0.5, SINE_WAVE)
+    m.add_samples(0, t.slide(44100, 440.0, 1000.0))
     m.write_wav('super.wav')
 
 if __name__ == "__main__":
