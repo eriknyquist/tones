@@ -11,26 +11,31 @@ DATA_SIZE = 2
 NUM_CHANNELS = 1
 MAX_SAMPLE_VALUE = float(int((2 ** (DATA_SIZE * 8)) / 2) - 1)
 
-def _pack_sample(sample):
-    ret = int(sample * MAX_SAMPLE_VALUE)
-    maxp = int(MAX_SAMPLE_VALUE)
+class Samples(list):
+    """
+    Extension of list class with methods useful for manipulating audio samples
+    """
 
-    if ret < -maxp:
-        ret = -maxp
-    elif ret > maxp:
-        ret = maxp
+    def _pack_sample(self, sample):
+        ret = int(sample * MAX_SAMPLE_VALUE)
+        maxp = int(MAX_SAMPLE_VALUE)
 
-    return struct.pack('h', ret)
+        if ret < -maxp:
+            ret = -maxp
+        elif ret > maxp:
+            ret = maxp
 
-def _serialize_samples(samples):
-    return bytes(b'').join([bytes(_pack_sample(s)) for s in samples])
+        return struct.pack('h', ret)
 
-def _write_wav_file(samples, filename):
-    f = wave.open(filename, 'w')
-    f.setparams((NUM_CHANNELS, DATA_SIZE, 44100, len(samples),
-        "NONE", "Uncompressed"))
-    f.writeframesraw(_serialize_samples(samples))
-    f.close()
+    def serialize(self):
+        """
+        Serializes all samples
+
+        :return: serialized samples
+        :rtype: bytes
+        """
+
+        return bytes(b'').join([bytes(self._pack_sample(s)) for s in self])
 
 def _fade_up(data, start, end, istep=1, astep=0.005):
     amp = 0.0
@@ -105,14 +110,11 @@ class Tone(object):
         """
         Initializes a Tone
 
-        :param wavetype: waveform type
-        :param frequency: tone frequency
-        :type frequency: float
-        :param rate: sample rate for generating samples
-        :type rate: int
-        :param amplitude: Tone amplitude, where 1.0 is the max. sample value\
-            and 0.0 is total silence
-        :type amplitude: float
+        :param int wavetype: waveform type
+        :param float frequency: tone frequency
+        :param int rate: sample rate for generating samples
+        :param float amplitude: Tone amplitude, where 1.0 is the max. sample \
+            value and 0.0 is total silence
         """
 
         try:
@@ -128,17 +130,14 @@ class Tone(object):
         """
         Generate tone for a specific number of samples
 
-        :param num: number of samples to generate
-        :type num: int
-        :param attack: tone attack in seconds
-        :type attack: float
-        :param decay: tone decay in seconds
-        :type decay: float
+        :param int num: number of samples to generate
+        :param float attack: tone attack in seconds
+        :param float decay: tone decay in seconds
         :return: samples in the range of -1.0 to 1.0
-        :rtype: [float]
+        :rtype: Samples
         """
 
-        ret = []
+        ret = Samples()
 
         for i in range(num):
             ret.append(self._table[i % self._period])
@@ -162,11 +161,10 @@ class Track(object):
         """
         Initializes a Track
 
-        :param wavetype: initial wavetype setting for this track
-        :type wavetype: int
+        :param int wavetype: initial wavetype setting for this track
         """
 
-        self._samples = []
+        self._samples = Samples()
         self._wavetype = wavetype
         self._weighting = None
 
@@ -174,8 +172,7 @@ class Track(object):
         """
         Append samples to this track. Samples should be in the range -1.0 to 1.0
 
-        :param samples: samples to append
-        :type samples: [float]
+        :param [float] samples: samples to append
         """
 
         self._samples.extend(samples)
@@ -190,10 +187,8 @@ class Mixer(object):
         """
         Initializes a Mixer
 
-        :param sample_rate: sampling rate in Hz
-        :type sample_rate: int
-        :param amplitude: master amplitude in the range 0.0 to 1.0
-        :type amplitude: float
+        :param int sample_rate: sampling rate in Hz
+        :param float amplitude: master amplitude in the range 0.0 to 1.0
         """
 
         self._rate = sample_rate
@@ -208,29 +203,82 @@ class Mixer(object):
 
         return ret
 
+    def _silence(self, samples):
+        return Samples([0.0] * samples)
+
     def create_track(self, trackname, wavetype=SINE_WAVE):
+        """
+        Creates a Tone track
+
+        :param trackname: unique identifier for track. Can be any hashable type.
+        :param int wavetype: initial wavetype setting for track
+        """
+
         self._tracks[trackname] = Track(wavetype)
+
+    def add_samples(self, trackname, samples):
+        """
+        Adds samples to a track
+
+        :param trackname: track identifier, track to add samples to
+        :param [float] samples: samples to add
+        """
+
+        track = self._get_track(trackname)
+        track.append_samples(samples)
 
     def add_tone(self, trackname, frequency=440.0, duration=1.0, attack=0.1,
             decay=0.1, amplitude=1.0):
         """
+        Create a tone and add the samples to a pecified track
+
+        :param trackname: track identifier, track to add tone to
+        :param float frequency: tone frequency
+        :param float duration: tone duration in seconds
+        :param float attack: tone attack in seconds
+        :param float decay: tone decay in seconds
+        :param float amplitude: Tone amplitude, where 1.0 is the max. sample \
+            value and 0.0 is total silence
         """
 
         track = self._get_track(trackname)
         tone = Tone(frequency, self._rate, amplitude, track._wavetype)
         numsamples = int(duration * self._rate)
-        samples = tone.samples(numsamples, attack, decay)
-        track.append_samples(samples)
+        track.append_samples(tone.samples(numsamples, attack, decay))
+
+    def add_silence(self, trackname, duration=1.0):
+        """
+        Adds silence to a track
+
+        :param trackname: track identifier, track to add silence to
+        :param float duration: silence duration in seconds
+        """
+
+        track = self._get_track(trackname)
+        track.append_samples(self._silence(duration * self._rate))
 
     def set_wavetype(self, trackname, wavetype):
+        """
+        Sets the waveform type for a track
+
+        :param trackname: track identifier, track to set wavetype for
+        :param int wavetype: waveform type
+        """
+
         track = self._get_track(trackname)
         track._wavetype = wavetype
 
-    def set_weighting(self, trackname, weighting):
         track = self._get_track(trackname)
         track._weighting = weighting
 
-    def mix(self, use_weightings=False):
+    def mix(self):
+        """
+        Mixes all tracks into a single stream of samples
+
+        :return: mixed samples
+        :rtype: Samples
+        """
+
         if len(self._tracks) == 0:
             return []
 
@@ -238,21 +286,32 @@ class Mixer(object):
         tracks.sort(key=lambda x: len(x._samples), reverse=True)
 
         default_div = len(tracks)
+        weight = 1.0 / default_div
 
-        def _with_weights(track):
-            return track._weighting
-
-        def _without_weights(track):
-            return 1.0 / default_div
-
-        _getweight = _with_weights if use_weightings else _without_weights
-        ret = [0.0] * len(tracks[0]._samples)
+        ret = self._silence(len(tracks[0]._samples))
 
         for track in tracks:
             for i in range(len(track._samples)):
-                ret[i] += (track._samples[i] * _getweight(track)) * self._amp
+                ret[i] += (track._samples[i] * weight) * self._amp
 
         return ret
+
+    def write_wav(self, filename):
+        """
+        Mixes all tracks into a single stream of samples and writes to a
+        .wav audio file
+
+        :param str filename: name of file to write
+        """
+
+        samples = self.mix()
+
+        f = wave.open(filename, 'w')
+        f.setparams((NUM_CHANNELS, DATA_SIZE, self._rate, len(samples),
+            "NONE", "Uncompressed"))
+
+        f.writeframesraw(samples.serialize())
+        f.close()
 
 def main():
     m = Mixer(44100, 0.5)
@@ -263,7 +322,7 @@ def main():
     m.add_tone(0, frequency=440.0, duration=1.0, attack=0.1, decay=0.5)
     m.add_tone(1, frequency=450.0, duration=1.0, attack=0.1, decay=0.5)
     m.add_tone(2, frequency=460.0, duration=1.0, attack=0.1, decay=0.5)
-    _write_wav_file(m.mix(), 'super.wav')
+    m.write_wav('super.wav')
 
 if __name__ == "__main__":
     main()
