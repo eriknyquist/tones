@@ -106,7 +106,7 @@ class Tone(object):
         SAWTOOTH_WAVE: _sawtooth_wave_table
     }
 
-    def __init__(self, frequency, rate, amplitude, wavetype):
+    def __init__(self, rate, amplitude, wavetype):
         """
         Initializes a Tone
 
@@ -124,14 +124,12 @@ class Tone(object):
 
         self._amp = amplitude
         self._rate = rate
-        self._period = int(rate / frequency)
-        self._table = self.tablefunc(frequency, rate, amplitude)
 
-    def slide(self, num, start, end):
-        time_step = 0.01
+    def _slide(self, num, start, end, phase):
+        time_step = 0.001
         sample_step = int(time_step * self._rate) # change frequency every 10ms
         num_steps = int(num / sample_step)
-        freq_delta = end - start
+        freq_delta = float(end - start)
         freq_step = freq_delta / num_steps
 
         i = 0
@@ -142,20 +140,19 @@ class Tone(object):
         while freq <= end:
             table = self.tablefunc(freq, self._rate, self._amp)
             period = len(table)
-            if last_size > 0:
-                i = int((float(i) / (last_size - 1)) * (period - 1))
+            i = self._phase_to_index(phase, period)
 
             for _ in range(sample_step):
                 ret.append(table[i % period])
                 i += 1
 
-            i %= period
+            phase = self._index_to_phase(i % period, period)
             last_size = period
             freq += freq_step
 
-        return ret
+        return ret, phase
 
-    def samples(self, num, attack=0.05, decay=0.05):
+    def samples(self, num, frequency, endfrequency=None, attack=0.05, decay=0.05, phase=0.0):
         """
         Generate tone for a specific number of samples
 
@@ -166,20 +163,38 @@ class Tone(object):
         :rtype: Samples
         """
 
-        ret = Samples()
+        period = int(self._rate / frequency)
 
-        for i in range(num):
-            ret.append(self._table[i % self._period])
+        if endfrequency is None:
+            samples = Samples()
+            table = self.tablefunc(frequency, self._rate, self._amp)
+            i = self._phase_to_index(phase, len(table))
+
+            for _ in range(num):
+                samples.append(table[i % period])
+                i += 1
+
+            phase = self._index_to_phase(i % period, len(table))
+        else:
+            samples, phase = self._slide(num, frequency, endfrequency, phase)
 
         if attack and attack > 0.0:
             step = 1.0 / (self._rate * attack)
-            _fade_up(ret, 0, len(ret), 1, step)
+            _fade_up(samples, 0, len(samples), 1, step)
 
         if decay and decay > 0.0:
             step = 1.0 / (self._rate * decay)
-            _fade_up(ret, len(ret) - 1, -1, -1, step)
+            _fade_up(samples, len(samples) - 1, -1, -1, step)
 
-        return ret
+        return samples, phase
+
+    @staticmethod
+    def _index_to_phase(index, size):
+        return (float(index) / (size - 1)) * 359.0
+
+    @staticmethod
+    def _phase_to_index(phase, size):
+        return int((float(phase) / 359.0) * (size - 1))
 
 class Track(object):
     """
@@ -193,6 +208,7 @@ class Track(object):
         :param int wavetype: initial wavetype setting for this track
         """
 
+        self._phase = 0.0
         self._samples = Samples()
         self._wavetype = wavetype
         self._weighting = None
@@ -256,8 +272,8 @@ class Mixer(object):
         track = self._get_track(trackname)
         track.append_samples(samples)
 
-    def add_tone(self, trackname, frequency=440.0, duration=1.0, attack=0.1,
-            decay=0.1, amplitude=1.0):
+    def add_tone(self, trackname, frequency=440.0, duration=1.0,
+            endfrequency=None, attack=None, decay=None, amplitude=1.0):
         """
         Create a tone and add the samples to a pecified track
 
@@ -271,9 +287,13 @@ class Mixer(object):
         """
 
         track = self._get_track(trackname)
-        tone = Tone(frequency, self._rate, amplitude, track._wavetype)
+        tone = Tone(self._rate, amplitude, track._wavetype)
         numsamples = int(duration * self._rate)
-        track.append_samples(tone.samples(numsamples, attack, decay))
+
+        samples, track._phase = tone.samples(numsamples, frequency,
+                endfrequency, attack, decay, track._phase)
+
+        track.append_samples(samples)
 
     def add_silence(self, trackname, duration=1.0):
         """
@@ -348,11 +368,16 @@ def main():
     #m.create_track(1, SINE_WAVE)
     #m.create_track(2, SINE_WAVE)
 
-    #m.add_tone(0, frequency=440.0, duration=1.0, attack=0.1, decay=0.5)
+    m.add_tone(0, frequency=440.0, duration=1.0)
+    m.add_tone(0, frequency=440.0, duration=0.1, endfrequency=600.0)
+    m.add_tone(0, frequency=600.0, duration=1.0)
     #m.add_tone(1, frequency=450.0, duration=1.0, attack=0.1, decay=0.5)
     #m.add_tone(2, frequency=460.0, duration=1.0, attack=0.1, decay=0.5)
-    t = Tone(440.0, 44100, 0.5, SINE_WAVE)
-    m.add_samples(0, t.slide(44100, 440.0, 1000.0))
+
+    #t = Tone(44100, 0.5, SAWTOOTH_WAVE)
+    #m.add_samples(0, t.samples(22050, 440, None, None, None))
+    #m.add_samples(0, t.samples(5000, 440, 550, None, None))
+    #m.add_samples(0, t.samples(22050, 550, None, None, None))
     m.write_wav('super.wav')
 
 if __name__ == "__main__":
