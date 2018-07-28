@@ -11,7 +11,7 @@ DATA_SIZE = 2
 NUM_CHANNELS = 1
 MAX_SAMPLE_VALUE = float(int((2 ** (DATA_SIZE * 8)) / 2) - 1)
 
-def translate(value, inmin, inmax, outmin, outmax):
+def _translate(value, inmin, inmax, outmin, outmax):
     scaled = float(value - inmin) / float(inmax - inmin)
     return outmin + (scaled * (outmax - outmin))
 
@@ -103,9 +103,9 @@ class Tone(object):
     Represents a fixed monophonic tone
     """
 
-    pitch_time_step = 0.001
+    _pitch_time_step = 0.001
 
-    table_generators = {
+    _table_generators = {
         SINE_WAVE: _sine_wave_table,
         SQUARE_WAVE: _square_wave_table,
         TRIANGLE_WAVE: _triangle_wave_table,
@@ -124,7 +124,7 @@ class Tone(object):
         """
 
         try:
-            self.tablefunc = self.table_generators[wavetype]
+            self.tablefunc = self._table_generators[wavetype]
         except KeyError:
             raise ValueError("Invalid wave type: %s" % wavetype)
 
@@ -132,7 +132,7 @@ class Tone(object):
         self._rate = rate
 
     def _variable_pitch_tone(self, points, phase):
-        sample_step = int(self.pitch_time_step * self._rate)
+        sample_step = int(self._pitch_time_step * self._rate)
 
         i = 0
         ret = Samples()
@@ -151,24 +151,24 @@ class Tone(object):
         return ret, phase
 
     def _vibrato_pitch_change(self, numsamples, freq, variance, phase):
-        stepsamples = self.pitch_time_step * self._rate
+        stepsamples = self._pitch_time_step * self._rate
         numsteps = float(numsamples) / stepsamples
         points = []
         half = variance / 2.0
 
-        table = _sine_wave_table(freq, int(1.0 / self.pitch_time_step), 1.0)
+        table = _sine_wave_table(freq, int(1.0 / self._pitch_time_step), 1.0)
         period = len(table)
         i = self._phase_to_index(phase, len(table))
 
         for _ in range(int(numsteps)):
             point = table[i % period]
-            points.append(translate(point, 0.0, 1.0, -half, half))
+            points.append(_translate(point, 0.0, 1.0, -half, half))
             i += 1
 
         return points, phase
 
     def _linear_pitch_change(self, numsamples, start, end):
-        stepsamples = self.pitch_time_step * self._rate
+        stepsamples = self._pitch_time_step * self._rate
         numsteps = float(numsamples) / stepsamples
         freqstep = (end - start) / numsteps
 
@@ -654,7 +654,7 @@ class Mixer(object):
         f.writeframesraw(samples.serialize())
         f.close()
 
-def main():
+def _main():
     m = Mixer(44100, 0.5)
     m.create_track(0, SINE_WAVE, vibrato_frequency=7.0)
     m.create_track(1, SINE_WAVE)
@@ -678,4 +678,4 @@ def main():
     m.write_wav('super.wav')
 
 if __name__ == "__main__":
-    main()
+    _main()
