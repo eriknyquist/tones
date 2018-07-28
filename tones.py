@@ -11,6 +11,10 @@ DATA_SIZE = 2
 NUM_CHANNELS = 1
 MAX_SAMPLE_VALUE = float(int((2 ** (DATA_SIZE * 8)) / 2) - 1)
 
+def translate(value, inmin, inmax, outmin, outmax):
+    scaled = float(value - inmin) / float(inmax - inmin)
+    return outmin + (scaled * (outmax - outmin))
+
 class Samples(list):
     """
     Extension of list class with methods useful for manipulating audio samples
@@ -99,6 +103,8 @@ class Tone(object):
     Represents a fixed monophonic tone
     """
 
+    pitch_time_step = 0.001
+
     table_generators = {
         SINE_WAVE: _sine_wave_table,
         SQUARE_WAVE: _square_wave_table,
@@ -125,19 +131,13 @@ class Tone(object):
         self._amp = amplitude
         self._rate = rate
 
-    def _slide(self, num, start, end, phase):
-        time_step = 0.001
-        sample_step = int(time_step * self._rate) # change frequency every 10ms
-        num_steps = int(num / sample_step)
-        freq_delta = float(end - start)
-        freq_step = freq_delta / num_steps
+    def _variable_pitch_tone(self, points, phase):
+        sample_step = int(self.pitch_time_step * self._rate)
 
         i = 0
-        last_size = 0
-        freq = float(start)
         ret = Samples()
 
-        while freq <= end:
+        for freq in points:
             table = self.tablefunc(freq, self._rate, self._amp)
             period = len(table)
             i = self._phase_to_index(phase, period)
@@ -147,25 +147,78 @@ class Tone(object):
                 i += 1
 
             phase = self._index_to_phase(i % period, period)
-            last_size = period
-            freq += freq_step
 
         return ret, phase
 
-    def samples(self, num, frequency, endfrequency=None, attack=0.05, decay=0.05, phase=0.0):
+    def _vibrato_pitch_change(self, numsamples, freq, variance, phase):
+        stepsamples = self.pitch_time_step * self._rate
+        numsteps = float(numsamples) / stepsamples
+        points = []
+        half = variance / 2.0
+
+        table = _sine_wave_table(freq, int(1.0 / self.pitch_time_step), 1.0)
+        period = len(table)
+        i = self._phase_to_index(phase, len(table))
+
+        for _ in range(int(numsteps)):
+            point = table[i % period]
+            points.append(translate(point, 0.0, 1.0, -half, half))
+            i += 1
+
+        return points, phase
+
+    def _linear_pitch_change(self, numsamples, start, end):
+        stepsamples = self.pitch_time_step * self._rate
+        numsteps = float(numsamples) / stepsamples
+        freqstep = (end - start) / numsteps
+
+        freq = float(start)
+        ret = [freq]
+
+        for _ in range(int(numsteps) - 1):
+            freq += freqstep
+            ret.append(freq)
+
+        return ret
+
+    def samples(self, num, frequency, endfrequency=None, attack=0.05,
+            decay=0.05, phase=0.0, vphase=0.0, vibrato_frequency=None,
+            vibrato_variance=20.0):
         """
         Generate tone for a specific number of samples
 
         :param int num: number of samples to generate
+        :param float frequency: tone frequency in Hz
+        :param float endfrequency: If not None, the tone frequency will change \
+            between 'frequency' and 'endfrequency' in increments of 1ms over \
+            all samples
         :param float attack: tone attack in seconds
         :param float decay: tone decay in seconds
-        :return: samples in the range of -1.0 to 1.0
-        :rtype: Samples
+        :param float phase: starting phase of generated tone in radians
+        :param float vphase: starting phase of vibrato in radians
+        :param float vibrato_frequency: vibrato frequency in Hz
+        :param float vibrato_variance: vibrato variance in Hz
+        :return: samples in the range of -1.0 to 1.0, tone phase, vibrato phase
+        :rtype: tuple of the form (samples, phase, vibrato_phase)
         """
 
+        points = None
         period = int(self._rate / frequency)
 
-        if endfrequency is None:
+        if not endfrequency is None:
+            points = self._linear_pitch_change(num, frequency,
+                endfrequency)
+
+        if not vibrato_frequency is None:
+            vpoints, vphase = self._vibrato_pitch_change(num, vibrato_frequency,
+                vibrato_variance, vphase)
+
+            if points is None:
+                points = [frequency + p for p in vpoints]
+            else:
+                points = [points[i] + vpoints[i] for i in range(len(points))]
+
+        if points is None:
             samples = Samples()
             table = self.tablefunc(frequency, self._rate, self._amp)
             i = self._phase_to_index(phase, len(table))
@@ -176,7 +229,7 @@ class Tone(object):
 
             phase = self._index_to_phase(i % period, len(table))
         else:
-            samples, phase = self._slide(num, frequency, endfrequency, phase)
+            samples, phase = self._variable_pitch_tone(points, phase)
 
         if attack and attack > 0.0:
             step = 1.0 / (self._rate * attack)
@@ -186,7 +239,7 @@ class Tone(object):
             step = 1.0 / (self._rate * decay)
             _fade_up(samples, len(samples) - 1, -1, -1, step)
 
-        return samples, phase
+        return samples, phase, vphase
 
     @staticmethod
     def _index_to_phase(index, size):
@@ -201,14 +254,26 @@ class Track(object):
     Represents a single track in a Mixer
     """
 
-    def __init__(self, wavetype=SINE_WAVE):
+    def __init__(self, wavetype=SINE_WAVE, attack=None, decay=None,
+            vibrato_frequency=None, vibrato_variance=15.0):
         """
         Initializes a Track
 
         :param int wavetype: initial wavetype setting for this track
+        :param float attack: initial tone attack for this track, to applied to \
+            each set of samples generated by 'append_samples'
+        :param float decay: initial tone decay for this track, to applied to \
+            each set of samples generated by 'append_samples'
+        :param float vibrato_frequency: initial vibrato frequency for this track
+        :param float vibrato_variance: initial vibrato variance for this track
         """
 
+        self._attack = attack
+        self._decay = decay
+        self._vibrato_frequency = vibrato_frequency
+        self._vibrato_variance = vibrato_variance
         self._phase = 0.0
+        self._vphase = 0.0
         self._samples = Samples()
         self._wavetype = wavetype
         self._weighting = None
@@ -227,6 +292,28 @@ class Mixer(object):
     Represents multiple tracks that can be summed together into a single
     list of samples
     """
+
+    _notes = {
+        "c": 261.626,
+        "c#": 277.183,
+        "db": 277.183,
+        "d": 293.665,
+        "d#": 311.127,
+        "eb": 311.127,
+        "e": 329.628,
+        "e#": 349.228,
+        "f": 349.228,
+        "f#": 369.994,
+        "gb": 369.994,
+        "g": 391.995,
+        "g#": 415.305,
+        "ab": 415.305,
+        "a": 440.0,
+        "a#": 466.164,
+        "bb": 466.164,
+        "b": 493.883
+    }
+
 
     def __init__(self, sample_rate=44100, amplitude=0.5):
         """
@@ -248,18 +335,131 @@ class Mixer(object):
 
         return ret
 
+    def _get_note(self, note, octave):
+        try:
+            freq = self._notes[note.lower()]
+        except KeyError:
+            raise ValueError("invalid note: %s" % note)
+
+        if octave < 4:
+            freq /= math.pow(2, (4 - octave))
+        elif octave > 4:
+            freq *= math.pow(2, (octave - 4))
+
+        return freq
+
     def _silence(self, samples):
         return Samples([0.0] * samples)
 
-    def create_track(self, trackname, wavetype=SINE_WAVE):
+    def create_track(self, trackname, *args, **kwargs):
         """
         Creates a Tone track
 
         :param trackname: unique identifier for track. Can be any hashable type.
-        :param int wavetype: initial wavetype setting for track
+        :param args: arguments for Track constructor
+        :param kwargs: keyword arguments for Track constructor
         """
 
-        self._tracks[trackname] = Track(wavetype)
+        self._tracks[trackname] = Track(*args, **kwargs)
+
+    def set_attack(self, trackname, attack):
+        """
+        Set the tone attack for a track. This attack will be applied to
+        all tones added to this track.
+
+        :param trackname: track identifier
+        :param float attack: attack time in seconds
+        """
+
+        track = self._get_track(trackname)
+        track._attack = attack
+
+    def get_attack(self, trackname):
+        """
+        Get the tone attack for a track
+
+        :param trackname: track identifier
+        :return: tone attack
+        :rtype: float
+        """
+
+        track = self._get_track(trackname)
+        return track._attack
+
+    def set_decay(self, trackname, decay):
+        """
+        Set tone decay for a track. This decay will be applied to all tones
+        added to this track
+
+        :param trackname: track identifier
+        :param float decay: decay time in seconds
+        """
+
+        track = self._get_track(trackname)
+        track._decay = decay
+
+    def get_decay(self, trackname):
+        """
+        Get the tone decay for a track
+
+        :param trackname: track identifier
+        :return: tone decay
+        :rtype: float
+        """
+
+        track = self._get_track(trackname)
+        return track._decay
+
+    def set_vibrato_frequency(self, trackname, frequency):
+        """
+        Set vibrato frequency for a track. This vibrato frequency will be
+        applied to all tones added to this track
+
+        :param trackname: track identifier
+        :param float frequency: vibrato frequency in Hz
+        """
+
+        track = self._get_track(trackname)
+        track._vibrato_frequency = frequency
+
+    def get_vibrato_frequency(self, trackname):
+        """
+        Get the vibrato frequency for a track
+
+        :param trackname: track identifier
+        :return: vibrato frequency in Hz
+        :rtype: float
+        """
+
+        track = self._get_track(trackname)
+        return track._vibrato_frequency
+
+    def set_vibrato_variance(self, trackname, variance):
+        """
+        Set vibrato variance for a track. The variance represents the full range
+        that the highest and lowest points of the vibrato will reach, in Hz; for
+        example, a tone at 440Hz with a vibrato variance of 20hz would
+        oscillate between 450Hz and 430Hz. This vibrato variance will be
+        applied to all tones added to this track
+
+        :param trackname: track identifier
+        :param float variance: vibrato variance in Hz
+        """
+
+        track = self._get_track(trackname)
+        track._vibrato_variance = variance
+
+    def get_vibrato_variance(self, trackname):
+        """
+        Get the vibrato variance for a track
+
+        :param trackname: track identifier
+        :return: vibrato variance in Hz
+        :rtype: float
+        """
+
+        track = self._get_track(trackname)
+        return track._vibrato_variance
 
     def add_samples(self, trackname, samples):
         """
@@ -273,15 +473,22 @@ class Mixer(object):
         track.append_samples(samples)
 
     def add_tone(self, trackname, frequency=440.0, duration=1.0,
-            endfrequency=None, attack=None, decay=None, amplitude=1.0):
+            endfrequency=None, attack=None, decay=None, amplitude=1.0,
+            vibrato_frequency=None, vibrato_variance=None):
         """
-        Create a tone and add the samples to a pecified track
+        Create a tone and add the samples to a track
 
         :param trackname: track identifier, track to add tone to
         :param float frequency: tone frequency
         :param float duration: tone duration in seconds
-        :param float attack: tone attack in seconds
-        :param float decay: tone decay in seconds
+        :param float attack: tone attack in seconds. Overrides the track's \
+            attack setting
+        :param float decay: tone decay in seconds. Overrides the track's \
+            decay setting
+        :param float vibrato_frequency: tone vibrato frequency in Hz. Overrides\
+            the track's vibrato frequency setting
+        :param float vibrato_variance: tone vibrato variance in Hz. Overrides\
+            the track's vibrato variance setting
         :param float amplitude: Tone amplitude, where 1.0 is the max. sample \
             value and 0.0 is total silence
         """
@@ -290,10 +497,86 @@ class Mixer(object):
         tone = Tone(self._rate, amplitude, track._wavetype)
         numsamples = int(duration * self._rate)
 
-        samples, track._phase = tone.samples(numsamples, frequency,
-                endfrequency, attack, decay, track._phase)
+        if not attack:
+            attack = track._attack
+        if not decay:
+            decay = track._decay
+        if not vibrato_frequency:
+            vibrato_frequency = track._vibrato_frequency
+        if not vibrato_variance:
+            vibrato_variance = track._vibrato_variance
+
+        samples, track._phase, track._vphase = tone.samples(numsamples,
+                frequency, endfrequency, attack, decay, track._phase,
+                track._vphase, vibrato_frequency, vibrato_variance)
 
         track.append_samples(samples)
+
+    def add_note(self, trackname, note="a", octave=4, duration=1.0,
+            endnote=None, endoctave=None, attack=None, decay=None,
+            amplitude=1.0, vibrato_frequency=None, vibrato_variance=None):
+        """
+        Same as 'add_tone', except the pitch can be specified as a standard
+        musical note, e.g. "c#"
+
+        :param trackname: track identifier, track to add tone to
+        :param str note: musical note. Must be a single character from a-g \
+            (non case-sensitive), followed by an optional sharp ('#') or flat \
+            ('b') character
+        :param str endnote: If not None, the tone frequency will change \
+            between 'note' and 'endnote' in increments of 1ms over \
+            all samples
+        :param int octave: note octave from 0-8
+        :param int endoctave: octave for the note specified by endnote
+        :param float duration: tone duration in seconds
+        :param float attack: tone attack in seconds. Overrides the track's \
+            attack setting
+        :param float decay: tone decay in seconds. Overrides the track's \
+            decay setting
+        :param float vibrato_frequency: tone vibrato frequency in Hz. Overrides\
+            the track's vibrato frequency setting
+        :param float vibrato_variance: tone vibrato variance in Hz. Overrides\
+            the track's vibrato variance setting
+        :param float amplitude: Tone amplitude, where 1.0 is the max. sample \
+            value and 0.0 is total silence
+        """
+
+        endfreq = None
+
+        freq = self._get_note(note, octave)
+        if endnote:
+            if not endoctave:
+                endoctave = octave
+
+            endfreq = self._get_note(endnote, endoctave)
+
+        self.add_tone(trackname, freq, duration, endfreq, attack, decay,
+            amplitude, vibrato_frequency, vibrato_variance)
+
+    def add_tones(self, tonelist):
+        """
+        Create multiple tones and add the samples for each tone in order to a
+        track
+
+        :param tonelist: list of tuples, where each tuple contains arguments \
+            for a single Mixer.add_tone invocation
+        """
+
+        for arglist in tonelist:
+            self.add_tone(*arglist)
+
+    def add_notes(self, trackname, notelist):
+        """
+        Create multiple notes and add the samples for each tone in order to a
+        track
+
+        :param trackname: track identifier
+        :param notelist: list of tuples, where each tuple contains arguments \
+            for a single Mixer.add_note invocation
+        """
+
+        for arglist in notelist:
+            self.add_note(trackname, *arglist)
 
     def add_silence(self, trackname, duration=1.0):
         """
@@ -317,8 +600,17 @@ class Mixer(object):
         track = self._get_track(trackname)
         track._wavetype = wavetype
 
+    def get_wavetype(self, trackname):
+        """
+        Get the waveform type for a track
+
+        :param trackname: track identifier
+        :return: track waveform type
+        :rtype: int
+        """
+
         track = self._get_track(trackname)
-        track._weighting = weighting
+        return track._wavetype
 
     def mix(self):
         """
@@ -364,20 +656,25 @@ class Mixer(object):
 
 def main():
     m = Mixer(44100, 0.5)
-    m.create_track(0, SINE_WAVE)
-    #m.create_track(1, SINE_WAVE)
-    #m.create_track(2, SINE_WAVE)
+    m.create_track(0, SINE_WAVE, vibrato_frequency=7.0)
+    m.create_track(1, SINE_WAVE)
 
-    m.add_tone(0, frequency=440.0, duration=1.0)
-    m.add_tone(0, frequency=440.0, duration=0.1, endfrequency=600.0)
-    m.add_tone(0, frequency=600.0, duration=1.0)
-    #m.add_tone(1, frequency=450.0, duration=1.0, attack=0.1, decay=0.5)
-    #m.add_tone(2, frequency=460.0, duration=1.0, attack=0.1, decay=0.5)
+    m.add_note(0, note='c', octave=5, duration=1.0)
+    m.add_note(0, note='c', octave=5, duration=0.2, endnote='d')
+    m.add_note(0, note='d', octave=5, duration=1.0)
+    m.add_note(0, note='d', octave=5, duration=0.2, endnote='c')
+    m.add_note(0, note='c', octave=5, duration=1.0)
+    m.add_note(0, note='c', octave=5, duration=1.0)
+    m.add_note(0, note='c', octave=5, duration=1.0, endnote='f', endoctave=5, vibrato_variance=30, attack=None, decay=1.0)
 
-    #t = Tone(44100, 0.5, SAWTOOTH_WAVE)
-    #m.add_samples(0, t.samples(22050, 440, None, None, None))
-    #m.add_samples(0, t.samples(5000, 440, 550, None, None))
-    #m.add_samples(0, t.samples(22050, 550, None, None, None))
+    m.add_notes(1, [
+        ('d', 5, 1.0),
+        ('d', 5, 0.2, 'f'),
+        ('f', 5, 1.0),
+        ('f', 5, 0.2, 'd'),
+        ('d', 5, 1.0, None, None, None, 0.2, 1.0, 7, 30)
+    ])
+
     m.write_wav('super.wav')
 
 if __name__ == "__main__":
