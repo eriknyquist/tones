@@ -18,4 +18,3 @@ def _translate(value, inmin, inmax, outmin, outmax):
 def _sine_sample(amp, freq, period, rate, i):
     return float(amp) * math.sin(2.0 * math.pi * float(freq)
         * (float(i % period) / float(rate)))
-

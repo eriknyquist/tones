@@ -6,6 +6,3 @@ SAWTOOTH_WAVE = 3
 DATA_SIZE = 2
 NUM_CHANNELS = 1
 MAX_SAMPLE_VALUE = float(int((2 ** (DATA_SIZE * 8)) / 2) - 1)
-
-
-
