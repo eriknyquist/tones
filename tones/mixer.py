@@ -104,7 +104,7 @@ class Mixer(object):
         return freq
 
     def _silence(self, samples):
-        return Samples([0.0] * samples)
+        return Samples([0.0] * int(samples))
 
     def create_track(self, trackname, *args, **kwargs):
         """

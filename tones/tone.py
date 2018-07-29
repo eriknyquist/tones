@@ -178,7 +178,6 @@ class Tone(object):
         """
 
         points = None
-        period = int(self._rate / frequency)
 
         if not endfrequency is None:
             points = self._linear_pitch_change(num, frequency,
@@ -196,13 +195,14 @@ class Tone(object):
         if points is None:
             samples = Samples()
             table = self.tablefunc(frequency, self._rate, self._amp)
-            i = self._phase_to_index(phase, len(table))
+            period = len(table)
+            i = self._phase_to_index(phase, period)
 
             for _ in range(num):
                 samples.append(table[i % period])
                 i += 1
 
-            phase = self._index_to_phase(i % period, len(table))
+            phase = self._index_to_phase(i % period, period)
         else:
             samples, phase = self._variable_pitch_tone(points, phase)
 
