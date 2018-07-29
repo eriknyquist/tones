@@ -11,7 +11,8 @@ Example
 
 .. code:: python
 
-   from tones import Mixer, SINE_WAVE, SAWTOOTH_WAVE
+   from tones import SINE_WAVE, SAWTOOTH_WAVE
+   from tones.mixer import Mixer
 
    # Create mixer, set sample rate and amplitude
    mixer = Mixer(44100, 0.5)

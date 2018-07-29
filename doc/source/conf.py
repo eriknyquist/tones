@@ -24,7 +24,7 @@ import sphinx_rtd_theme
 def run_apidoc(_):
     argv = [
         "-o", "source",
-        ".."
+        "../tones"
     ]
 
     try:
