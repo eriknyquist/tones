@@ -34,3 +34,8 @@ Example
    # Mix all tracks into a single list of samples scaled from 0.0 to 1.0, and
    # return the sample list
    samples = mixer.mix()
+
+Documentation
+=============
+
+Full API documention is here: `<https://tones.readthedocs.io>`_
