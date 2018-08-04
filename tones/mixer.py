@@ -49,26 +49,25 @@ class Mixer(object):
     """
 
     _notes = {
-        "c": 261.626,
-        "c#": 277.183,
-        "db": 277.183,
-        "d": 293.665,
+        "c": 261.6256,
+        "c#": 277.1826,
+        "db": 277.1826,
+        "d": 293.6648,
         "d#": 311.127,
         "eb": 311.127,
-        "e": 329.628,
-        "e#": 349.228,
-        "f": 349.228,
-        "f#": 369.994,
-        "gb": 369.994,
-        "g": 391.995,
-        "g#": 415.305,
-        "ab": 415.305,
+        "e": 329.6276,
+        "e#": 349.2282,
+        "f": 349.2282,
+        "f#": 369.9944,
+        "gb": 369.9944,
+        "g": 391.9954,
+        "g#": 415.3047,
+        "ab": 415.3047,
         "a": 440.0,
-        "a#": 466.164,
-        "bb": 466.164,
-        "b": 493.883
+        "a#": 466.1638,
+        "bb": 466.1638,
+        "b": 493.8833
     }
-
 
     def __init__(self, sample_rate=44100, amplitude=0.5):
         """
@@ -404,7 +403,7 @@ class Mixer(object):
 
         f = wave.open(filename, 'w')
         f.setparams((tones.NUM_CHANNELS, tones.DATA_SIZE, self._rate,
-            len(samples), "NONE", "Uncompressed"))
+            len(samples) /2, "NONE", "Uncompressed"))
 
-        f.writeframesraw(samples.serialize())
+        f.writeframes(samples.serialize())
         f.close()
