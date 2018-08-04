@@ -377,7 +377,7 @@ class Mixer(object):
         if len(self._tracks) == 0:
             return []
 
-        tracks = self._tracks.values()
+        tracks = list(self._tracks.values())
         tracks.sort(key=lambda x: len(x._samples), reverse=True)
 
         default_div = len(tracks)
@@ -402,8 +402,9 @@ class Mixer(object):
         samples = self.mix()
 
         f = wave.open(filename, 'w')
+
         f.setparams((tones.NUM_CHANNELS, tones.DATA_SIZE, self._rate,
-            len(samples) /2, "NONE", "Uncompressed"))
+            int(len(samples) / 2), "NONE", "Uncompressed"))
 
         f.writeframes(samples.serialize())
         f.close()
