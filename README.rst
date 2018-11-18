@@ -6,6 +6,15 @@ optionally be written directly to a .wav audio file. Supports pitch-bending,
 vibrato, polyphony, several waveform types (sine, square, triangle,
 sawtooth), and several other waveform-shaping options.
 
+Installation
+============
+
+Install from the PyPi repository:
+
+::
+
+    pip install tones
+
 Example
 =======
 
