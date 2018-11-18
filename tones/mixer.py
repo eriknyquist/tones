@@ -391,7 +391,14 @@ class Mixer(object):
 
         return ret
 
-    def write_wav(self, filename):
+    def sample_data(self):
+        """
+        Mixes all trackes down into a single stream of samples and returns the
+        samples as a 16-bit PCM stream packed into a string
+        """
+        return self.mix().serialize()
+
+    def write_wav(self, filename, sampledata=None):
         """
         Mixes all tracks into a single stream of samples and writes to a
         .wav audio file
@@ -399,12 +406,13 @@ class Mixer(object):
         :param str filename: name of file to write
         """
 
-        samples = self.mix()
-
         f = wave.open(filename, 'w')
 
         f.setparams((tones.NUM_CHANNELS, tones.DATA_SIZE, self._rate,
             int(len(samples) / 2), "NONE", "Uncompressed"))
 
-        f.writeframes(samples.serialize())
+        if sampledata is None:
+            sampledata = self.mix().serialize()
+
+        f.writeframes(sampledata)
         f.close()
