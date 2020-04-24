@@ -24,7 +24,7 @@ with open(README, 'r') as f:
 
 setup(
     name='tones',
-    version='1.0.0',
+    version='1.0.1',
     description=('Generates simple polyphonic tones and melodies'),
     long_description=long_description,
     url='http://github.com/eriknyquist/tones',
