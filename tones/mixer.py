@@ -375,7 +375,7 @@ class Mixer(object):
         """
 
         if len(self._tracks) == 0:
-            return []
+            return Samples([])
 
         tracks = list(self._tracks.values())
         tracks.sort(key=lambda x: len(x._samples), reverse=True)
@@ -406,13 +406,13 @@ class Mixer(object):
         :param str filename: name of file to write
         """
 
+        if sampledata is None:
+            sampledata = self.mix().serialize()
+
         f = wave.open(filename, 'w')
 
         f.setparams((tones.NUM_CHANNELS, tones.DATA_SIZE, self._rate,
-            int(len(samples) / 2), "NONE", "Uncompressed"))
-
-        if sampledata is None:
-            sampledata = self.mix().serialize()
+            int(len(sampledata) / 2), "NONE", "Uncompressed"))
 
         f.writeframes(sampledata)
         f.close()
