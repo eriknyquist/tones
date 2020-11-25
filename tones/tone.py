@@ -1,20 +1,35 @@
 import struct
+from typing import List
 
 import tones
 import tones._utils as utils
 
-def _sine_wave_table(freq, rate, amp):
-    period = int(rate / freq)
-    return [utils._sine_sample(amp, freq, period, rate, i) for i in range(period)]
+def _sine_wave_samples(freq, rate, amp, num) -> List[float]:
+    """
+    Generates a set of audio samples taken at the given sampling rate 
+    representing a sine wave oscillating at the given frequency with 
+    the given amplitude lasting for the given duration.
 
-def _square_wave_table(freq, rate, amp):
+    :param float freq The frequency of oscillation of the sine wave
+    :param int rate The sampling rate
+    :param float amp The amplitude of the sine wave
+    :param float num The number of samples to generate.
+
+    :return List[float] The audio samples representing the signal as 
+                        described above.
+    """
+    return [utils._sine_sample(amp, freq, rate, i) for i in range(num)]
+
+def _square_wave_samples(freq, rate, amp, num):
+    # TODO - Use the num to generate the entire set of samples
     ret = []
-    for s in _sine_wave_table(freq, rate, amp):
+    for s in _sine_wave_samples(freq, rate, amp):
         ret.append(amp if s > 0 else -amp)
 
     return ret
 
-def _triangle_wave_table(freq, rate, amp):
+def _triangle_wave_samples(freq, rate, amp, num):
+    # TODO - Use the num to generate the entire set of samples
     period = int(rate / freq)
     slope = 2.0 / (period / 2.0)
     val = 0.0
@@ -32,7 +47,8 @@ def _triangle_wave_table(freq, rate, amp):
 
     return ret
 
-def _sawtooth_wave_table(freq, rate, amp):
+def _sawtooth_wave_samples(freq, rate, amp, duration):
+    # TODO - Use the duration to generate the entire set of samples
     period = int(rate / freq)
     slope = 2.0 / period
     val = 0.0
@@ -80,11 +96,11 @@ class Tone(object):
 
     _pitch_time_step = 0.001
 
-    _table_generators = {
-        tones.SINE_WAVE: _sine_wave_table,
-        tones.SQUARE_WAVE: _square_wave_table,
-        tones.TRIANGLE_WAVE: _triangle_wave_table,
-        tones.SAWTOOTH_WAVE: _sawtooth_wave_table
+    _sample_generators = {
+        tones.SINE_WAVE: _sine_wave_samples,
+        tones.SQUARE_WAVE: _square_wave_samples,
+        tones.TRIANGLE_WAVE: _triangle_wave_samples,
+        tones.SAWTOOTH_WAVE: _sawtooth_wave_samples
     }
 
     def __init__(self, rate, amplitude, wavetype):
@@ -99,7 +115,7 @@ class Tone(object):
         """
 
         try:
-            self.tablefunc = self._table_generators[wavetype]
+            self.samplefunc = self._sample_generators[wavetype]
         except KeyError:
             raise ValueError("Invalid wave type: %s" % wavetype)
 
@@ -113,7 +129,7 @@ class Tone(object):
         ret = Samples()
 
         for freq in points:
-            table = self.tablefunc(freq, self._rate, self._amp)
+            table = self.samplefunc(freq, self._rate, self._amp)
             period = len(table)
             i = self._phase_to_index(phase, period)
 
@@ -131,7 +147,7 @@ class Tone(object):
         points = []
         half = variance / 2.0
 
-        table = _sine_wave_table(freq, int(1.0 / self._pitch_time_step), 1.0)
+        table = _sine_wave_samples(freq, int(1.0 / self._pitch_time_step), 1.0)
         period = len(table)
         i = self._phase_to_index(phase, len(table))
 
@@ -194,12 +210,12 @@ class Tone(object):
 
         if points is None:
             samples = Samples()
-            table = self.tablefunc(frequency, self._rate, self._amp)
-            period = len(table)
+            generated_samples = self.samplefunc(frequency, self._rate, self._amp, num)
+            period = len(generated_samples)
             i = self._phase_to_index(phase, period)
 
             for _ in range(num):
-                samples.append(table[i % period])
+                samples.append(generated_samples[i])
                 i += 1
 
             phase = self._index_to_phase(i % period, period)
