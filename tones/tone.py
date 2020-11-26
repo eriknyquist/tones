@@ -21,22 +21,46 @@ def _sine_wave_samples(freq, rate, amp, num) -> List[float]:
     return [utils._sine_sample(amp, freq, rate, i) for i in range(num)]
 
 def _square_wave_samples(freq, rate, amp, num):
-    # TODO - Use the num to generate the entire set of samples
+    """
+    Generates a set of audio samples taken at the given sampling rate 
+    representing a square wave oscillating at the given frequency with 
+    the given amplitude lasting for the given duration.
+
+    :param float freq The frequency of oscillation of the square wave
+    :param int rate The sampling rate
+    :param float amp The amplitude of the square wave
+    :param float num The number of samples to generate.
+
+    :return List[float] The audio samples representing the signal as 
+                        described above.
+    """
     ret = []
-    for s in _sine_wave_samples(freq, rate, amp):
+    for s in _sine_wave_samples(freq, rate, amp, num):
         ret.append(amp if s > 0 else -amp)
 
     return ret
 
 def _triangle_wave_samples(freq, rate, amp, num):
-    # TODO - Use the num to generate the entire set of samples
+    """
+    Generates a set of audio samples taken at the given sampling rate 
+    representing a triangle wave oscillating at the given frequency with 
+    the given amplitude lasting for the given duration.
+
+    :param float freq The frequency of oscillation of the triangle wave
+    :param int rate The sampling rate
+    :param float amp The amplitude of the triangle wave
+    :param float num The number of samples to generate.
+
+    :return List[float] The audio samples representing the signal as 
+                        described above.
+    """
     period = int(rate / freq)
     slope = 2.0 / (period / 2.0)
     val = 0.0
     step = slope
 
     ret = []
-    for _ in range(period):
+    for _ in range(num):
         if val >= 1.0:
             step = -slope
         elif val <= -1.0:
@@ -47,14 +71,26 @@ def _triangle_wave_samples(freq, rate, amp, num):
 
     return ret
 
-def _sawtooth_wave_samples(freq, rate, amp, duration):
-    # TODO - Use the duration to generate the entire set of samples
+def _sawtooth_wave_samples(freq, rate, amp, num):
+    """
+    Generates a set of audio samples taken at the given sampling rate 
+    representing a sawtooth wave oscillating at the given frequency with 
+    the given amplitude lasting for the given duration.
+
+    :param float freq The frequency of oscillation of the sawtooth wave
+    :param int rate The sampling rate
+    :param float amp The amplitude of the sawtooth wave
+    :param float num The number of samples to generate.
+
+    :return List[float] The audio samples representing the signal as 
+                        described above.
+    """
     period = int(rate / freq)
     slope = 2.0 / period
     val = 0.0
 
     ret = []
-    for _ in range(period):
+    for _ in range(num):
         if val >= 1.0:
             val = -1.0
 
@@ -129,12 +165,12 @@ class Tone(object):
         ret = Samples()
 
         for freq in points:
-            table = self.samplefunc(freq, self._rate, self._amp)
-            period = len(table)
+            period = int(self._rate / freq)
+            generated_samples = self.samplefunc(freq, self._rate, self._amp, period)
             i = self._phase_to_index(phase, period)
 
             for _ in range(sample_step):
-                ret.append(table[i % period])
+                ret.append(generated_samples[i % period])
                 i += 1
 
             phase = self._index_to_phase(i % period, period)
@@ -147,12 +183,11 @@ class Tone(object):
         points = []
         half = variance / 2.0
 
-        table = _sine_wave_samples(freq, int(1.0 / self._pitch_time_step), 1.0)
-        period = len(table)
-        i = self._phase_to_index(phase, len(table))
+        generated_samples = _sine_wave_samples(freq, int(1.0 / self._pitch_time_step), 1.0, int(numsteps))
+        i = self._phase_to_index(phase, len(generated_samples))
 
         for _ in range(int(numsteps)):
-            point = table[i % period]
+            point = generated_samples[i]
             points.append(utils._translate(point, 0.0, 1.0, -half, half))
             i += 1
 
@@ -212,7 +247,7 @@ class Tone(object):
             samples = Samples()
             generated_samples = self.samplefunc(frequency, self._rate, self._amp, num)
             period = len(generated_samples)
-            i = self._phase_to_index(phase, period)
+            i = 0
 
             for _ in range(num):
                 samples.append(generated_samples[i])
@@ -229,7 +264,6 @@ class Tone(object):
         if decay and decay > 0.0:
             step = 1.0 / (self._rate * decay)
             utils._fade_up(samples, len(samples) - 1, -1, -1, step)
-
         return samples, phase, vphase
 
     @staticmethod
