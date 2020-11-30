@@ -3,6 +3,8 @@ import os
 from setuptools import setup
 from distutils.core import Command
 
+from tones import __version__
+
 HERE = os.path.abspath(os.path.dirname(__file__))
 README = os.path.join(HERE, "README.rst")
 
@@ -24,7 +26,7 @@ with open(README, 'r') as f:
 
 setup(
     name='tones',
-    version='1.0.1',
+    version=__version__,
     description=('Generates simple polyphonic tones and melodies'),
     long_description=long_description,
     url='http://github.com/eriknyquist/tones',
