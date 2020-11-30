@@ -4,7 +4,7 @@ from typing import List
 import tones
 import tones._utils as utils
 
-def _sine_wave_samples(freq, rate, amp, num) -> List[float]:
+def _sine_wave_samples(freq, rate, amp, num):
     """
     Generates a set of audio samples taken at the given sampling rate 
     representing a sine wave oscillating at the given frequency with 
@@ -54,22 +54,7 @@ def _triangle_wave_samples(freq, rate, amp, num):
     :return List[float] The audio samples representing the signal as 
                         described above.
     """
-    period = int(rate / freq)
-    slope = 2.0 / (period / 2.0)
-    val = 0.0
-    step = slope
-
-    ret = []
-    for _ in range(num):
-        if val >= 1.0:
-            step = -slope
-        elif val <= -1.0:
-            step = slope
-
-        ret.append(amp * val)
-        val += step
-
-    return ret
+    return [utils._triangle_sample(amp, freq, rate, i) for i in range(num)]
 
 def _sawtooth_wave_samples(freq, rate, amp, num):
     """
@@ -85,19 +70,7 @@ def _sawtooth_wave_samples(freq, rate, amp, num):
     :return List[float] The audio samples representing the signal as 
                         described above.
     """
-    period = int(rate / freq)
-    slope = 2.0 / period
-    val = 0.0
-
-    ret = []
-    for _ in range(num):
-        if val >= 1.0:
-            val = -1.0
-
-        ret.append(val * amp)
-        val += slope
-
-    return ret
+    return [utils._sawtooth_sample(amp, freq, rate, i) for i in range(num)]
 
 class Samples(list):
     """
